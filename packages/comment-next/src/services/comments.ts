@@ -140,6 +140,7 @@ interface HaloComment {
     role?: string;
     activeCommentCount?: number;
     badges?: CommentNextBadge[];
+    identity?: CommentNextComment['author']['identity'];
   };
   spec?: {
     content?: string;
@@ -580,6 +581,7 @@ function adaptHaloComment(comment: HaloComment): CommentNextComment {
       role,
       activeCommentCount: normalizeNumber(owner.activeCommentCount),
       badges: owner.badges,
+      identity: owner.identity,
     },
     stats: {
       upvotes: comment.stats?.upvote ?? 0,

@@ -42,6 +42,11 @@ public interface SettingConfigGetter {
     /**
      * Never {@link Mono#empty()}.
      */
+    Mono<InteractionPlusConfig> getInteractionPlusConfig();
+
+    /**
+     * Never {@link Mono#empty()}.
+     */
     Mono<UploadConfig> getUploadConfig();
 
     /**
@@ -1280,5 +1285,17 @@ public interface SettingConfigGetter {
     @Data
     class AiReviewNotifyUser {
         private String username;
+    }
+
+    @Data
+    @Accessors(chain = true)
+    class InteractionPlusConfig {
+        public static final String GROUP = "interactionPlus";
+
+        private boolean enabled = true;
+
+        public static InteractionPlusConfig empty() {
+            return new InteractionPlusConfig().setEnabled(true);
+        }
     }
 }

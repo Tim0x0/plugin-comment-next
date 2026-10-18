@@ -12,6 +12,7 @@ import static run.halo.app.extension.index.query.Queries.equal;
 import static run.halo.app.extension.index.query.Queries.isNull;
 import static run.halo.app.extension.index.query.Queries.or;
 
+import com.xhhao.comment.widget.interactionplus.AuthorIdentityLoader;
 import com.xhhao.comment.widget.iplocation.CommentNextIpLocationService;
 import java.time.Instant;
 import java.util.List;
@@ -51,9 +52,10 @@ class CommentNextCommentListTest {
     void setUp() {
         when(access.getCurrentAccess()).thenReturn(Mono.just(
             new CommentNextAccessContext(AnonymousUserConst.PRINCIPAL, false)));
-        when(authors.badgeContext()).thenReturn(Mono.just(new CommentNextBadgeContext(null)));
+        when(authors.badgeContext()).thenReturn(Mono.just(new CommentNextBadgeContext(null,
+            AuthorIdentityLoader.disabled())));
         when(authors.resolve(any(), any())).thenReturn(Mono.just(
-            new CommentNextAuthor("reader", "Reader", "", "Email", "anonymous", 0, List.of())));
+            new CommentNextAuthor("reader", "Reader", "", "Email", "anonymous", 0, List.of(), null)));
         when(locations.resolve(any())).thenReturn(Mono.just(""));
         when(counters.fetchUpvotes(any(), anyCollection()))
             .thenReturn(Mono.just(Map.of("pin", 100, "one", 3, "two", 2, "three", 1)));

@@ -5,6 +5,7 @@ import com.xhhao.comment.widget.security.CommentNextSecurityReviewAction;
 import com.xhhao.comment.widget.upload.ImageUploadProviderType;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import lombok.Data;
 import lombok.Getter;
 import lombok.experimental.Accessors;
@@ -26,6 +27,11 @@ public interface SettingConfigGetter {
     /**
      * Never {@link Mono#empty()}.
      */
+    Mono<IpLocationConfig> getIpLocationConfig();
+
+    /**
+     * Never {@link Mono#empty()}.
+     */
     Mono<SecurityConfig> getSecurityConfig();
 
     /**
@@ -42,6 +48,11 @@ public interface SettingConfigGetter {
      * Never {@link Mono#empty()}.
      */
     Mono<UploadConfig> getUploadConfig();
+
+    /**
+     * Never {@link Mono#empty()}.
+     */
+    Mono<EmoteConfig> getEmoteConfig();
 
     /**
      * Never {@link Mono#empty()}.
@@ -205,6 +216,33 @@ public interface SettingConfigGetter {
             return new QqProfileConfig()
                 .setEnabled(false)
                 .setApiUrlTemplate("");
+        }
+    }
+
+    @Data
+    @Accessors(chain = true)
+    class IpLocationConfig {
+        public static final String GROUP = "ipLocation";
+
+        public static final String DEFAULT_API_URL_TEMPLATE =
+            "https://whois.pconline.com.cn/ipJson.jsp?ip={ip}&json=true";
+
+        private static final int DEFAULT_CACHE_MINUTES = 1_440;
+
+        private static final int DEFAULT_TIMEOUT_MILLIS = 3_000;
+
+        private boolean enabled = true;
+
+        private String apiUrlTemplate = DEFAULT_API_URL_TEMPLATE;
+
+        private int cacheMinutes = DEFAULT_CACHE_MINUTES;
+
+        private int timeoutMillis = DEFAULT_TIMEOUT_MILLIS;
+
+        private boolean offlineFallback = true;
+
+        public static IpLocationConfig empty() {
+            return new IpLocationConfig();
         }
     }
 
@@ -1121,6 +1159,58 @@ public interface SettingConfigGetter {
     @Data
     class AllowedOriginConfig {
         private String origin;
+    }
+
+    @Data
+    @Accessors(chain = true)
+    class EmoteConfig {
+        public static final String GROUP = "emote";
+
+        private boolean defaultPaused = true;
+
+        private int maxWidth = 512;
+
+        private int maxHeight = 512;
+
+        private int recentCommentMaxSize = 100;
+
+        @Getter(onMethod_ = @NonNull)
+        private List<AllowedLottieHostConfig> allowedHosts = new ArrayList<>();
+
+        public void setAllowedHosts(List<AllowedLottieHostConfig> allowedHosts) {
+            this.allowedHosts = allowedHosts == null ? new ArrayList<>() : allowedHosts;
+        }
+
+        public List<String> allowedHostValues() {
+            return allowedHosts.stream()
+                .filter(Objects::nonNull)
+                .map(AllowedLottieHostConfig::getHost)
+                .filter(host -> host != null && !host.isBlank())
+                .map(String::strip)
+                .distinct()
+                .toList();
+        }
+
+        public int normalizedMaxWidth() {
+            return normalizeDimension(maxWidth, 24, 4096, 512);
+        }
+
+        public int normalizedMaxHeight() {
+            return normalizeDimension(maxHeight, 24, 4096, 512);
+        }
+
+        private int normalizeDimension(int value, int min, int max, int fallback) {
+            return value <= 0 ? fallback : Math.min(max, Math.max(min, value));
+        }
+
+        public static EmoteConfig empty() {
+            return new EmoteConfig();
+        }
+    }
+
+    @Data
+    class AllowedLottieHostConfig {
+        private String host;
     }
 
     @Data

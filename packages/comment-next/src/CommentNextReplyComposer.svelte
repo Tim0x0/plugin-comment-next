@@ -3,6 +3,7 @@ import CommentNextBaseComposer from './CommentNextBaseComposer.svelte';
 import { createReply } from './services/comments';
 import type {
   CommentNextAiConfig,
+  CommentNextEmoteConfig,
   CommentNextSecurityConfig,
   CommentNextUploadConfig,
 } from './services/config';
@@ -21,6 +22,7 @@ const {
   replyToName = '',
   aiConfig,
   uploadConfig,
+  emoteConfig,
   emotePacks = [],
   quoteReply,
   onCancel = () => {},
@@ -36,6 +38,7 @@ const {
   replyToName?: string;
   aiConfig?: CommentNextAiConfig;
   uploadConfig?: CommentNextUploadConfig;
+  emoteConfig?: CommentNextEmoteConfig;
   emotePacks?: CommentNextEmotePack[];
   quoteReply?: CommentNextComment;
   onCancel?: () => void;
@@ -52,6 +55,7 @@ async function handleSubmit(payload: CommentNextComposerSubmitPayload) {
     baseUrl,
     commentName: commentId,
     content: payload.content,
+    allowedLottieHosts: emoteConfig?.allowedHosts,
     captchaCode: payload.captchaCode,
     quoteReply: quoteReply?.id,
     owner: payload.owner,
@@ -71,6 +75,7 @@ async function handleSubmit(payload: CommentNextComposerSubmitPayload) {
   {replyToName}
   {aiConfig}
   {uploadConfig}
+  {emoteConfig}
   {emotePacks}
   {onCancel}
   targetMissingMessage="回复目标缺失，无法提交。"

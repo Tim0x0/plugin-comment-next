@@ -30,6 +30,7 @@ import {
 } from './services/comments';
 import type {
   CommentNextAiConfig,
+  CommentNextEmoteConfig,
   CommentNextSecurityConfig,
   CommentNextUploadConfig,
 } from './services/config';
@@ -45,6 +46,7 @@ import type { CommentNextComposerSubmitPayload } from './types/composer';
 import type { CommentNextEditorImageKind } from './types/editor';
 import type { CommentNextEmoteItem, CommentNextEmotePack } from './types/emote';
 import { sanitizeCommentSubmitHtml } from './utils/html';
+import { isolateTypingShortcuts } from './utils/isolate-typing-shortcuts';
 import { inferImageContentType, isImageContentType } from './utils/image-files';
 import {
   COMMENT_NEXT_MODAL_OPEN_EVENT,
@@ -52,6 +54,16 @@ import {
 } from './utils/overlays';
 
 type CommentNextComposerVariant = 'comment' | 'reply';
+
+type CommentNextLimitedMedia = {
+  type: 'emote' | 'lottie';
+  width: number;
+  height: number;
+};
+
+const DEFAULT_EMOTE_MEDIA_LIMIT = 512;
+const MIN_EMOTE_MEDIA_LIMIT = 24;
+const MAX_EMOTE_MEDIA_LIMIT = 4096;
 
 type CommentNextEditorRef = {
   getHtml: () => string;
@@ -65,7 +77,9 @@ type CommentNextEditorRef = {
     alt?: string,
     kind?: CommentNextEditorImageKind
   ) => void;
+  insertLottie: (item: CommentNextEmoteItem) => void;
   replaceImageSrc: (sourceSrc: string, targetSrc: string, alt?: string) => void;
+  getLimitedMediaDimensions: () => CommentNextLimitedMedia[];
   consumeCommandTrigger: () => void;
 };
 
@@ -111,6 +125,7 @@ const {
   allowImages = true,
   aiConfig,
   uploadConfig,
+  emoteConfig,
   emotePacks = [],
   loginRedirectHash = '',
   onChange = () => {},
@@ -154,6 +169,7 @@ const {
   allowImages?: boolean;
   aiConfig?: CommentNextAiConfig;
   uploadConfig?: CommentNextUploadConfig;
+  emoteConfig?: CommentNextEmoteConfig;
   emotePacks?: CommentNextEmotePack[];
   loginRedirectHash?: string;
   onChange?: (html: string) => void;
@@ -402,6 +418,13 @@ async function submitComposer({
     return;
   }
 
+  const mediaLimitMessage = validateLimitedEmoteDimensions();
+  if (mediaLimitMessage) {
+    showSubmitMessage(mediaLimitMessage);
+    editorRef?.focus();
+    return;
+  }
+
   const resolvedCaptchaCode = captchaCodeOverride ?? captchaCode;
   const captchaMissing = captchaRequired && !resolvedCaptchaCode.trim();
 
@@ -573,7 +596,40 @@ function hasContent(html: string): boolean {
 
   return Boolean(
     template.content.textContent?.trim() ||
-      template.content.querySelector('img[src]')
+      template.content.querySelector('img[src], halo-lottie[src]')
+  );
+}
+
+function validateLimitedEmoteDimensions(): string | undefined {
+  const maxWidth = resolveEmoteMediaLimit(emoteConfig?.maxWidth);
+  const maxHeight = resolveEmoteMediaLimit(emoteConfig?.maxHeight);
+
+  for (const media of editorRef?.getLimitedMediaDimensions() ?? []) {
+    if (media.type === 'lottie') {
+      continue;
+    }
+
+    const label = '表情图片';
+    if (media.width > maxWidth) {
+      return `${label}宽度不能超过 ${maxWidth}px。`;
+    }
+    if (media.height > maxHeight) {
+      return `${label}高度不能超过 ${maxHeight}px。`;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveEmoteMediaLimit(value: number | undefined): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_EMOTE_MEDIA_LIMIT;
+  }
+
+  return Math.min(
+    MAX_EMOTE_MEDIA_LIMIT,
+    Math.max(MIN_EMOTE_MEDIA_LIMIT, Math.round(numericValue))
   );
 }
 
@@ -650,6 +706,11 @@ async function handleAnonymousEmailBlur(email: string) {
 }
 
 function handleEmoteSelect(item: CommentNextEmoteItem) {
+  if (item.type === 'lottie') {
+    editorRef?.insertLottie(item);
+    return;
+  }
+
   if (item.type === 'image') {
     if (!allowImages) {
       return;
@@ -706,7 +767,10 @@ async function handleImagePaste(files: File[]) {
 
 async function prepareContentForSubmit(rawContent: string): Promise<string> {
   await uploadPendingImagesForSubmit(rawContent);
-  return sanitizeCommentSubmitHtml(editorRef?.getHtml() || editorHtml);
+  return sanitizeCommentSubmitHtml(
+    editorRef?.getHtml() || editorHtml,
+    emoteConfig?.allowedHosts
+  );
 }
 
 async function uploadPendingImagesForSubmit(rawContent: string): Promise<void> {
@@ -1026,6 +1090,7 @@ function resolveMentionName(
 
 <form
   bind:this={composerElement}
+  use:isolateTypingShortcuts
   class:comment-next-box={variant === "comment"}
   class:comment-next-reply-composer={variant === "reply"}
   class:comment-next-composer-loading={loading}
@@ -1139,6 +1204,7 @@ function resolveMentionName(
         {imageUploading}
         {imageAccept}
         {emotePacks}
+        emotePageSize={emoteConfig?.pageSize}
         onEmoteSelect={handleEmoteSelect}
         onImageUpload={handleImageUpload}
         onLogin={handleLogin}

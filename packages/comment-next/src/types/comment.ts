@@ -62,6 +62,7 @@ export interface CommentNextComment {
   quoteReplyId?: string;
   replyToName?: string;
   userAgent?: string;
+  ipLocation?: string;
   author: CommentNextAuthor;
   stats?: CommentNextCommentStats;
   replyPage?: CommentNextPageInfo;
@@ -78,5 +79,6 @@ export interface CommentNextCommentPage {
   hasNext: boolean;
   hasPrevious: boolean;
   firstCommentId?: string;
+  pinnedItems?: CommentNextComment[];
   items: CommentNextComment[];
 }

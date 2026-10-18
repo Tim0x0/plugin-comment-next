@@ -6,7 +6,7 @@ metadata:
     "store.halo.run/recommended-apps": '["app-acslk9nu"]'
 spec:
   enabled: true
-  requires: ">=2.25.0"
+  requires: ">=2.26.0"
   author:
     name: Handsome
     website: https://www.xhhao.com
@@ -21,6 +21,7 @@ spec:
   pluginDependencies:
     ai-foundation?: "*"
     "interaction-plus?": ">=1.0.0"
+    lottie?: "*"
   license:
     - name: "GPL-3.0"
       url: "https://github.com/acanyo/plugin-comment-next/blob/main/LICENSE"

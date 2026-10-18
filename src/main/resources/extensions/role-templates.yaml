@@ -22,6 +22,15 @@ rules:
   - apiGroups: [ "api.commentnext.xhhao.com" ]
     resources: [ "emotes" ]
     verbs: [ "list" ]
+  # plugin-lottie exposes animation content through a custom subresource. The
+  # comment widget embeds those URLs directly, so anonymous visitors need the
+  # same read permission as the authenticated console user.
+  - apiGroups: [ "api.lottie.halo.run" ]
+    resources: [ "animations/content" ]
+    verbs: [ "get" ]
+  - nonResourceURLs:
+      - "/apis/api.lottie.halo.run/v1alpha1/animations/*"
+    verbs: [ "get" ]
   - apiGroups: [ "api.commentnext.xhhao.com" ]
     resources: [ "comments", "comments/replies", "comments/featured" ]
     verbs: [ "get", "list" ]
@@ -49,6 +58,24 @@ rules:
       - "/apis/api.commentnext.xhhao.com/v1alpha1/target-reports"
       - "/apis/api.commentnext.xhhao.com/v1alpha1/qq-profiles"
     verbs: [ "get", "list", "create" ]
+---
+apiVersion: v1alpha1
+kind: Role
+metadata:
+  name: comment-next-view-comment-search
+  labels:
+    halo.run/role-template: "true"
+  annotations:
+    rbac.authorization.halo.run/dependencies: |
+      [ "role-template-view-comments" ]
+    rbac.authorization.halo.run/module: "评论组件 Next"
+    rbac.authorization.halo.run/display-name: "查询评论邮箱与 IP"
+    rbac.authorization.halo.run/ui-permissions: |
+      [ "plugin:comment-next:comment-search:view" ]
+rules:
+  - apiGroups: [ "console.api.commentnext.xhhao.com" ]
+    resources: [ "comment-search" ]
+    verbs: [ "get", "list" ]
 ---
 apiVersion: v1alpha1
 kind: Role

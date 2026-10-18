@@ -1,4 +1,5 @@
 <script lang="ts">
+import { untrack } from 'svelte';
 import CommentNextAvatar from './CommentNextAvatar.svelte';
 import CommentNextBadge from './CommentNextBadge.svelte';
 import CommentNextContent from './CommentNextContent.svelte';
@@ -13,6 +14,7 @@ import CommentNextTooltip from './CommentNextTooltip.svelte';
 import { fetchReplyPage, upvoteCommentTarget } from './services/comments';
 import type {
   CommentNextAiConfig,
+  CommentNextEmoteConfig,
   CommentNextReactionConfig,
   CommentNextReportConfig,
   CommentNextSecurityConfig,
@@ -57,6 +59,7 @@ const {
   reportConfig,
   aiMentionName = '',
   uploadConfig,
+  emoteConfig,
   emotePacks = [],
 }: {
   baseUrl?: string;
@@ -78,6 +81,7 @@ const {
   reportConfig?: CommentNextReportConfig;
   aiMentionName?: string;
   uploadConfig?: CommentNextUploadConfig;
+  emoteConfig?: CommentNextEmoteConfig;
   emotePacks?: CommentNextEmotePack[];
 } = $props();
 
@@ -86,9 +90,15 @@ let upvotes = $state(0);
 let previousCommentId = $state('');
 let replyComposerOpen = $state(false);
 let quoteReply = $state<CommentNextComment | undefined>();
-let replies = $state<CommentNextComment[]>([]);
-let replyPage = $state<CommentNextPageInfo | undefined>();
-let replyAuthors = $state<Record<string, string>>({});
+let replies = $state<CommentNextComment[]>(
+  untrack(() => comment.replies ?? [])
+);
+let replyPage = $state<CommentNextPageInfo | undefined>(
+  untrack(() => comment.replyPage)
+);
+let replyAuthors = $state<Record<string, string>>(
+  buildReplyAuthorMap(untrack(() => comment.replies ?? []))
+);
 let repliesLoading = $state(false);
 let repliesError = $state('');
 
@@ -103,7 +113,7 @@ const replyCount = $derived(
 const hasMoreReplies = $derived(
   Boolean(replyPage?.hasNext) || replyCount > replies.length
 );
-const hasUnloadedReplies = $derived(replyCount > 0 && hasMoreReplies);
+const remainingReplyCount = $derived(Math.max(replyCount - replies.length, 0));
 const commentReactionEnabled = $derived(
   Boolean(reactionConfig?.enabled && reactionConfig.commentEnabled !== false)
 );
@@ -164,13 +174,9 @@ async function handleLocalUpvote() {
   }
 }
 
-async function handleReplyAction() {
+function handleReplyAction() {
   if (repliesLoading) {
     return;
-  }
-
-  if (hasUnloadedReplies) {
-    await loadRemainingReplies();
   }
 
   openCommentReply();
@@ -453,6 +459,22 @@ async function loadReplies({
     {#if comment.creationTime}
       <div class="comment-next-comment-submeta">
         <time>{formatRelativeTime(comment.creationTime)}</time>
+        {#if comment.ipLocation}
+          <span
+            class="comment-next-ip-location"
+            title={`IP 属地：${comment.ipLocation}`}
+          >
+            <span class="comment-next-ip-location-icon">
+              <i
+                class="comment-next-ip-location-glyph i-mdi:map-marker"
+                aria-hidden="true"
+              ></i>
+            </span>
+            <span class="comment-next-ip-location-text">
+              {comment.ipLocation}
+            </span>
+          </span>
+        {/if}
         {#if showCommenterDevice}
           <CommentNextEnvironmentTags tags={environmentTags} compact />
         {/if}
@@ -463,6 +485,7 @@ async function loadReplies({
       content={comment.content}
       {aiMentionName}
       {enableImageLightbox}
+      allowedLottieHosts={emoteConfig?.allowedHosts}
     />
 
     <footer class="comment-next-comment-actions">
@@ -526,6 +549,7 @@ async function loadReplies({
           {captchaConfig}
           {aiConfig}
           {uploadConfig}
+          {emoteConfig}
           {emotePacks}
           replyToName={comment.author.displayName}
           onCancel={closeReplyComposer}
@@ -534,7 +558,7 @@ async function loadReplies({
       </div>
     {/if}
 
-    {#if replies.length || repliesLoading || repliesError}
+    {#if replies.length || repliesLoading || repliesError || hasMoreReplies}
       <div class="comment-next-replies">
         {#each replies as reply (reply.id)}
           <CommentNextReplyItem
@@ -548,6 +572,7 @@ async function loadReplies({
             {loggedIn}
             reactionConfig={reactionConfig}
             reportConfig={reportConfig}
+            {emoteConfig}
             replyToName={resolveReplyToName(reply)}
             onReply={openQuoteReply}
           />
@@ -563,6 +588,7 @@ async function loadReplies({
                 {captchaConfig}
                 {aiConfig}
                 {uploadConfig}
+                {emoteConfig}
                 {emotePacks}
                 replyToName={reply.author.displayName}
                 quoteReply={reply}
@@ -578,12 +604,18 @@ async function loadReplies({
             <span>{repliesError}</span>
             <button type="button" onclick={loadRemainingReplies}>重试</button>
           </div>
-        {:else if repliesLoading && !replies.length}
+        {:else if repliesLoading}
           <div class="comment-next-replies-message">
             <span class="comment-next-replies-more-loading">
               <CommentNextIcon name="loader" size={14} />
             </span>
             <span>正在加载回复</span>
+          </div>
+        {:else if hasMoreReplies}
+          <div class="comment-next-replies-message">
+            <button type="button" onclick={loadRemainingReplies}>
+              展开剩余 {remainingReplyCount} 条回复
+            </button>
           </div>
         {/if}
       </div>
@@ -664,6 +696,22 @@ async function loadReplies({
 
   .comment-next-comment-submeta {
     --at-apply: mb-2 flex-wrap;
+  }
+
+  .comment-next-ip-location {
+    --at-apply: inline-flex min-h-[1.375rem] max-w-48 box-border items-center gap-1 text-xs text-[var(--comment-next-muted-color,#6b7687)] font-[560] leading-none;
+  }
+
+  .comment-next-ip-location-icon {
+    --at-apply: inline-flex text-inherit;
+  }
+
+  .comment-next-ip-location-glyph {
+    --at-apply: inline-block h-[1em] w-[1em] text-[0.8125rem];
+  }
+
+  .comment-next-ip-location-text {
+    --at-apply: min-w-0 overflow-hidden text-ellipsis whitespace-nowrap;
   }
 
   .comment-next-comment-actions {

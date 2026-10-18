@@ -10,6 +10,7 @@ import CommentNextReactionButton from './CommentNextReactionButton.svelte';
 import CommentNextReportButton from './CommentNextReportButton.svelte';
 import { upvoteCommentTarget } from './services/comments';
 import type {
+  CommentNextEmoteConfig,
   CommentNextReactionConfig,
   CommentNextReportConfig,
 } from './services/config';
@@ -41,6 +42,7 @@ const {
   loggedIn = false,
   reactionConfig,
   reportConfig,
+  emoteConfig,
   onReply = () => {},
 }: {
   baseUrl?: string;
@@ -54,6 +56,7 @@ const {
   loggedIn?: boolean;
   reactionConfig?: CommentNextReactionConfig;
   reportConfig?: CommentNextReportConfig;
+  emoteConfig?: CommentNextEmoteConfig;
   onReply?: (reply: CommentNextComment) => void;
 } = $props();
 
@@ -178,6 +181,22 @@ async function handleUpvote() {
         {#if reply.creationTime}
           <time>{formatRelativeTime(reply.creationTime)}</time>
         {/if}
+        {#if reply.ipLocation}
+          <span
+            class="comment-next-ip-location"
+            title={`IP 属地：${reply.ipLocation}`}
+          >
+            <span class="comment-next-ip-location-icon">
+              <i
+                class="comment-next-ip-location-glyph i-mdi:map-marker"
+                aria-hidden="true"
+              ></i>
+            </span>
+            <span class="comment-next-ip-location-text">
+              {reply.ipLocation}
+            </span>
+          </span>
+        {/if}
         {#if showCommenterDevice}
           <CommentNextEnvironmentTags tags={environmentTags} compact />
         {/if}
@@ -191,6 +210,7 @@ async function handleUpvote() {
       content={reply.content}
       {aiMentionName}
       {enableImageLightbox}
+      allowedLottieHosts={emoteConfig?.allowedHosts}
     />
 
     <div class="comment-next-reply-actions">
@@ -292,6 +312,22 @@ async function handleUpvote() {
 
   .comment-next-reply-submeta {
     --at-apply: inline-flex min-w-0 flex-wrap items-center gap-[0.45rem] font-[560] leading-[1.25rem];
+  }
+
+  .comment-next-ip-location {
+    --at-apply: inline-flex min-h-[1.375rem] max-w-48 box-border items-center gap-1 text-xs text-[var(--comment-next-muted-color,#6b7687)] font-[560] leading-none;
+  }
+
+  .comment-next-ip-location-icon {
+    --at-apply: inline-flex text-inherit;
+  }
+
+  .comment-next-ip-location-glyph {
+    --at-apply: inline-block h-[1em] w-[1em] text-[0.8125rem];
+  }
+
+  .comment-next-ip-location-text {
+    --at-apply: min-w-0 overflow-hidden text-ellipsis whitespace-nowrap;
   }
 
   .comment-next-reply-submeta strong {

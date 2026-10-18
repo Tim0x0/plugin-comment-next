@@ -46,10 +46,12 @@ const previewItems = computed(() => props.group.spec.items.slice(0, 6));
 const isDeleting = computed(() => isDeletingResource(props.group));
 
 function typeText(type: string) {
+  if (type === 'lottie') return 'Lottie 动画';
   return type === 'image' ? '图片表情' : '颜文字';
 }
 
 function sourceText(type: string) {
+  if (type === 'PLUGIN') return 'plugin-lottie';
   return type === 'DEFAULT' ? '默认源' : '自定义源';
 }
 
@@ -94,7 +96,9 @@ function padDateValue(value: number): string {
                 class=":uno: block max-h-6 max-w-6 object-contain"
                 loading="lazy"
               />
-              <span v-else class=":uno: max-w-16 truncate">{{ item.icon }}</span>
+              <span v-else class=":uno: max-w-16 truncate">
+                {{ group.spec.provider === 'LOTTIE' ? (item.text || item.animationName) : item.icon }}
+              </span>
             </span>
           </div>
         </template>

@@ -1,14 +1,14 @@
 <script lang="ts">
 import CommentNextImageLightbox from './CommentNextImageLightbox.svelte';
-import {
-  highlightAssistantMentionHtml,
-  sanitizeCommentHtml,
-  sanitizeConsoleCommentHtml,
-} from './utils/html';
+import type { CommentNextEmoteConfig } from './services/config';
+import { highlightAssistantMentionHtml } from './utils/assistant-mention-html';
+import { sanitizeCommentHtml, sanitizeConsoleCommentHtml } from './utils/html';
 import {
   type CommentNextLightboxImage,
   imageLightboxContent,
 } from './utils/image-lightbox';
+import { ensureLottieRuntimeLoaded } from './utils/lottie-content-adapter';
+import { upgradeLottieImages } from './utils/lottie-html';
 import { notifyCommentNextModalOpen } from './utils/overlays';
 
 const {
@@ -16,23 +16,46 @@ const {
   allowImages = true,
   aiMentionName = '',
   enableImageLightbox = true,
+  allowedLottieHosts = [],
 }: {
   content?: string;
   allowImages?: boolean;
   aiMentionName?: string;
   enableImageLightbox?: boolean;
+  allowedLottieHosts?: CommentNextEmoteConfig['allowedHosts'];
 } = $props();
 
 let lightboxImage = $state<CommentNextLightboxImage | undefined>();
+let contentElement = $state<HTMLDivElement | undefined>();
 
 const safeContent = $derived(
   highlightAssistantMentionHtml(
     allowImages
-      ? sanitizeCommentHtml(content)
-      : sanitizeConsoleCommentHtml(content),
+      ? sanitizeCommentHtml(content, allowedLottieHosts)
+      : sanitizeConsoleCommentHtml(content, allowedLottieHosts),
     aiMentionName
   )
 );
+
+$effect(() => {
+  const content = safeContent;
+  const hosts = allowedLottieHosts;
+
+  if (content.includes('<halo-lottie')) {
+    ensureLottieRuntimeLoaded();
+  }
+
+  // Some consumers (notably the Console extension point) set the custom
+  // element properties after the initial render. Scan the rendered DOM once
+  // more so a stored Halo-safe Lottie <img> cannot remain unconverted.
+  if (!contentElement || !content.includes('<img')) {
+    return;
+  }
+
+  if (upgradeLottieImages(contentElement, hosts)) {
+    ensureLottieRuntimeLoaded();
+  }
+});
 
 function openLightbox(image: CommentNextLightboxImage) {
   notifyCommentNextModalOpen('image-lightbox');
@@ -41,6 +64,7 @@ function openLightbox(image: CommentNextLightboxImage) {
 </script>
 
 <div
+  bind:this={contentElement}
   use:imageLightboxContent={{
     enabled: enableImageLightbox && allowImages,
     content: safeContent,
@@ -119,6 +143,15 @@ function openLightbox(image: CommentNextLightboxImage) {
 
   .comment-next-comment-content :global(.comment-next-emote-image) {
     --at-apply: mx-0.5 inline-block max-h-18 max-w-36 align-middle object-contain;
+  }
+
+  .comment-next-comment-content :global(.comment-next-image) {
+    --at-apply: inline-block max-w-full align-middle object-contain;
+  }
+
+  .comment-next-comment-content :global(halo-lottie) {
+    --at-apply: mx-0.5 inline-flex align-middle;
+    max-width: 100%;
   }
 
   .comment-next-comment-content :global(.comment-next-lightbox-trigger) {

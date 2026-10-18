@@ -41,6 +41,7 @@ interface CreateCommentOptions {
   name: string;
   version: string;
   content: string;
+  allowedLottieHosts?: readonly unknown[];
   hidden?: boolean;
   captchaCode?: string;
   owner?: {
@@ -60,6 +61,7 @@ interface CreateReplyOptions {
   baseUrl?: string;
   commentName: string;
   content: string;
+  allowedLottieHosts?: readonly unknown[];
   captchaCode?: string;
   quoteReply?: string;
   owner?: {
@@ -116,6 +118,7 @@ interface HaloCommentPage {
   hasNext?: boolean;
   hasPrevious?: boolean;
   firstCommentName?: string;
+  pinnedItems?: HaloComment[];
   items?: HaloComment[];
 }
 
@@ -146,6 +149,7 @@ interface HaloComment {
     hidden?: boolean;
     quoteReply?: string;
     userAgent?: string;
+    ipLocation?: string;
     top?: boolean;
     priority?: number;
     owner?: {
@@ -250,7 +254,7 @@ export function getCommentSubmitErrorMessage(
   }
 
   if (error.status === 400) {
-    return '评论内容或提交信息不完整，请检查后重试。';
+    return detail || title || '评论提交失败，请稍后再试。';
   }
 
   if (error.status === 429) {
@@ -446,7 +450,10 @@ export async function createReply(
 function createCommentRequest(
   options: CreateCommentOptions
 ): HaloCommentRequest {
-  const content = sanitizeCommentSubmitHtml(options.content);
+  const content = sanitizeCommentSubmitHtml(
+    options.content,
+    options.allowedLottieHosts
+  );
   const request: HaloCommentRequest = {
     raw: content,
     content,
@@ -472,7 +479,10 @@ function createCommentRequest(
 }
 
 function createReplyRequest(options: CreateReplyOptions): HaloReplyRequest {
-  const content = sanitizeCommentSubmitHtml(options.content);
+  const content = sanitizeCommentSubmitHtml(
+    options.content,
+    options.allowedLottieHosts
+  );
   const request: HaloReplyRequest = {
     raw: content,
     content,
@@ -535,6 +545,7 @@ function adaptHaloCommentPage(
     hasNext: Boolean(data.hasNext),
     hasPrevious: Boolean(data.hasPrevious),
     firstCommentId: data.firstCommentName,
+    pinnedItems: (data.pinnedItems ?? []).map(adaptHaloComment),
     items: (data.items ?? []).map(adaptHaloComment),
   };
 }
@@ -560,6 +571,7 @@ function adaptHaloComment(comment: HaloComment): CommentNextComment {
     quoteReplyId: comment.spec?.quoteReply,
     replyToName: textValue(comment.replyToName),
     userAgent: comment.spec?.userAgent,
+    ipLocation: textValue(comment.spec?.ipLocation),
     author: {
       displayName,
       avatar: resolveAuthorAvatar(owner.avatar, kind, emailHash),

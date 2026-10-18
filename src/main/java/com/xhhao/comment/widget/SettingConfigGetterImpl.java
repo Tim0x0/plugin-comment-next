@@ -28,6 +28,13 @@ public class SettingConfigGetterImpl implements SettingConfigGetter {
     }
 
     @Override
+    public Mono<IpLocationConfig> getIpLocationConfig() {
+        return settingFetcher.fetch(IpLocationConfig.GROUP, IpLocationConfig.class)
+            .defaultIfEmpty(IpLocationConfig.empty())
+            .onErrorReturn(IpLocationConfig.empty());
+    }
+
+    @Override
     public Mono<SecurityConfig> getSecurityConfig() {
         return settingFetcher.fetch(SecurityConfig.GROUP, SecurityConfig.class)
             .defaultIfEmpty(SecurityConfig.empty())
@@ -51,6 +58,12 @@ public class SettingConfigGetterImpl implements SettingConfigGetter {
     public Mono<UploadConfig> getUploadConfig() {
         return settingFetcher.fetch(UploadConfig.GROUP, UploadConfig.class)
             .defaultIfEmpty(UploadConfig.empty());
+    }
+
+    @Override
+    public Mono<EmoteConfig> getEmoteConfig() {
+        return settingFetcher.fetch(EmoteConfig.GROUP, EmoteConfig.class)
+            .defaultIfEmpty(EmoteConfig.empty());
     }
 
     @Override

@@ -1,12 +1,19 @@
 <script lang="ts">
-import { onMount } from 'svelte';
-import CommentNextEmotePreview from './CommentNextEmotePreview.svelte';
+import { onMount, tick } from 'svelte';
+import CommentNextIcon from './CommentNextIcon.svelte';
+import CommentNextLottie from './CommentNextLottie.svelte';
 import type { CommentNextEmoteItem, CommentNextEmotePack } from './types/emote';
 
 type CommentNextEmotePanelEntry = {
   item: CommentNextEmoteItem;
   packName: string;
   packId: string;
+};
+
+export type CommentNextEmotePreviewEntry = {
+  item: CommentNextEmoteItem;
+  packName: string;
+  style: string;
 };
 
 type CommentNextEmotePanelTab = {
@@ -18,24 +25,34 @@ type CommentNextEmotePanelTab = {
 const RECENT_PACK_ID = 'comment-next-recent-emotes';
 const RECENT_STORAGE_KEY = 'comment-next:recent-emotes';
 const MAX_RECENT_COUNT = 24;
+const DEFAULT_EMOTE_PAGE_SIZE = 24;
+const MIN_EMOTE_PAGE_SIZE = 1;
+const MAX_EMOTE_PAGE_SIZE = 100;
 
 const {
   packs = [],
   fixed = false,
   panelStyle = '',
+  pageSize = DEFAULT_EMOTE_PAGE_SIZE,
   onSelect = () => {},
+  onPreviewChange = () => {},
 }: {
   packs?: CommentNextEmotePack[];
   fixed?: boolean;
   panelStyle?: string;
+  pageSize?: number;
   onSelect?: (item: CommentNextEmoteItem) => void;
+  onPreviewChange?: (entry: CommentNextEmotePreviewEntry | undefined) => void;
 } = $props();
 
+let panelElement = $state<HTMLDivElement | undefined>();
 let activePackId = $state('');
 let query = $state('');
 let recentItemIds = $state<string[]>([]);
 let selectedItemId = $state('');
 let previewEntry = $state<CommentNextEmotePanelEntry | undefined>();
+let currentPage = $state(1);
+let paginationContext = $state('');
 
 const availablePacks = $derived(packs.filter((pack) => pack.items.length));
 const allEntries = $derived(
@@ -82,8 +99,21 @@ const filteredEntries = $derived(
     ? allEntries.filter((entry) => isEntryMatched(entry, normalizedQuery))
     : activeEntries
 );
+const resolvedPageSize = $derived(resolvePageSize(pageSize));
+const totalPages = $derived(
+  Math.max(1, Math.ceil(filteredEntries.length / resolvedPageSize))
+);
+const visibleEntries = $derived(
+  filteredEntries.slice(
+    (currentPage - 1) * resolvedPageSize,
+    currentPage * resolvedPageSize
+  )
+);
 const hasImageItems = $derived(
   filteredEntries.some((entry) => entry.item.type === 'image')
+);
+const hasLottieItems = $derived(
+  filteredEntries.some((entry) => entry.item.type === 'lottie')
 );
 const panelCountText = $derived(
   normalizedQuery
@@ -93,6 +123,28 @@ const panelCountText = $derived(
 
 onMount(() => {
   recentItemIds = loadRecentItemIds();
+
+  const updatePreview = () => {
+    if (previewEntry) {
+      void updatePreviewPosition(previewEntry);
+    }
+  };
+
+  window.addEventListener('resize', updatePreview);
+  window.addEventListener('scroll', updatePreview, true);
+
+  return () => {
+    window.removeEventListener('resize', updatePreview);
+    window.removeEventListener('scroll', updatePreview, true);
+    emitPreview(undefined);
+  };
+});
+
+$effect(() => {
+  const entry = previewEntry;
+  if (entry) {
+    void updatePreviewPosition(entry);
+  }
 });
 
 $effect(() => {
@@ -104,9 +156,41 @@ $effect(() => {
   }
 });
 
+$effect(() => {
+  const context = `${activePackId}\u0000${normalizedQuery}\u0000${resolvedPageSize}`;
+  if (paginationContext !== context) {
+    paginationContext = context;
+    currentPage = 1;
+  }
+});
+
+$effect(() => {
+  if (currentPage > totalPages) {
+    currentPage = totalPages;
+  } else if (currentPage < 1) {
+    currentPage = 1;
+  }
+});
+
 function selectTab(tab: CommentNextEmotePanelTab) {
   activePackId = tab.id;
   query = '';
+  currentPage = 1;
+}
+
+function selectPage(nextPage: number) {
+  const normalizedPage = Math.min(
+    Math.max(Math.round(nextPage), 1),
+    totalPages
+  );
+
+  if (normalizedPage === currentPage) {
+    return;
+  }
+
+  currentPage = normalizedPage;
+  previewEntry = undefined;
+  emitPreview(undefined);
 }
 
 function handleSelect(item: CommentNextEmoteItem) {
@@ -121,8 +205,9 @@ function handleSelect(item: CommentNextEmoteItem) {
 
 function showPreview(entry: CommentNextEmotePanelEntry) {
   if (
-    entry.item.type === 'image' &&
-    (entry.item.originSrc || entry.item.src || entry.item.previewSrc)
+    (entry.item.type === 'image' &&
+      (entry.item.originSrc || entry.item.src || entry.item.previewSrc)) ||
+    (entry.item.type === 'lottie' && entry.item.contentUrl)
   ) {
     previewEntry = entry;
   }
@@ -131,13 +216,72 @@ function showPreview(entry: CommentNextEmotePanelEntry) {
 function hidePreview(itemId: string) {
   if (previewEntry?.item.id === itemId) {
     previewEntry = undefined;
+    emitPreview(undefined);
   }
+}
+
+function emitPreview(entry: CommentNextEmotePreviewEntry | undefined) {
+  if (typeof onPreviewChange === 'function') {
+    onPreviewChange(entry);
+  }
+}
+
+async function updatePreviewPosition(entry: CommentNextEmotePanelEntry) {
+  if (typeof window === 'undefined' || !panelElement?.isConnected) {
+    return;
+  }
+
+  await tick();
+
+  if (!panelElement?.isConnected || previewEntry?.item.id !== entry.item.id) {
+    return;
+  }
+
+  const panelRect = panelElement.getBoundingClientRect();
+  if (panelRect.width <= 0 || panelRect.height <= 0) {
+    return;
+  }
+
+  const viewportPadding = 12;
+  const gap = 8;
+  const previewWidth = entry.item.type === 'lottie' ? 240 : 136;
+  const previewHeight = entry.item.type === 'lottie' ? 220 : 180;
+  const fitsRight =
+    panelRect.right + gap + previewWidth <= window.innerWidth - viewportPadding;
+  const left = fitsRight
+    ? panelRect.right + gap
+    : Math.max(viewportPadding, panelRect.left - gap - previewWidth);
+  const top = Math.min(
+    Math.max(viewportPadding, panelRect.top),
+    Math.max(viewportPadding, window.innerHeight - previewHeight - viewportPadding)
+  );
+
+  emitPreview({
+    item: entry.item,
+    packName: entry.packName,
+    style: [
+      `--comment-next-emote-preview-left:${Math.round(left)}px`,
+      `--comment-next-emote-preview-top:${Math.round(top)}px`,
+    ].join(';'),
+  });
 }
 
 function emitSelect(item: CommentNextEmoteItem) {
   if (typeof onSelect === 'function') {
     onSelect(item);
   }
+}
+
+function resolvePageSize(value: number): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return DEFAULT_EMOTE_PAGE_SIZE;
+  }
+
+  return Math.min(
+    MAX_EMOTE_PAGE_SIZE,
+    Math.max(MIN_EMOTE_PAGE_SIZE, Math.round(numericValue))
+  );
 }
 
 function isEntryMatched(
@@ -178,6 +322,7 @@ function saveRecentItemIds(ids: string[]) {
 
 {#if activePack}
   <div
+    bind:this={panelElement}
     class:comment-next-emote-panel-fixed={fixed}
     class="comment-next-emote-panel"
     style={panelStyle}
@@ -224,13 +369,13 @@ function saveRecentItemIds(ids: string[]) {
       <div class="comment-next-emote-content">
         {#if filteredEntries.length}
           <div
-            class:comment-next-emote-grid-image={hasImageItems}
+            class:comment-next-emote-grid-image={hasImageItems || hasLottieItems}
             class="comment-next-emote-grid"
             aria-label={normalizedQuery ? '表情搜索结果' : `${activePack.name}表情`}
           >
-            {#each filteredEntries as entry}
+            {#each visibleEntries as entry}
               <button
-                class:comment-next-emote-item-image={entry.item.type === "image"}
+                class:comment-next-emote-item-image={entry.item.type === "image" || entry.item.type === "lottie"}
                 class:comment-next-emote-item-selected={selectedItemId === entry.item.id}
                 class="comment-next-emote-item"
                 type="button"
@@ -249,24 +394,46 @@ function saveRecentItemIds(ids: string[]) {
                     loading="lazy"
                     decoding="async"
                   />
+                {:else if entry.item.type === "lottie"}
+                  <CommentNextLottie item={entry.item} maxWidth={40} maxHeight={40} />
                 {:else}
                   <span>{entry.item.value}</span>
                 {/if}
               </button>
             {/each}
           </div>
+          {#if totalPages > 1}
+            <nav
+              class="comment-next-emote-pagination"
+              aria-label={`表情分页，共 ${filteredEntries.length} 个表情`}
+            >
+              <button
+                type="button"
+                aria-label="上一页"
+                disabled={currentPage === 1}
+                onclick={() => selectPage(currentPage - 1)}
+              >
+                <CommentNextIcon name="chevronLeft" size={14} />
+                <span>上一页</span>
+              </button>
+              <span aria-live="polite">第 {currentPage} / {totalPages} 页</span>
+              <button
+                type="button"
+                aria-label="下一页"
+                disabled={currentPage === totalPages}
+                onclick={() => selectPage(currentPage + 1)}
+              >
+                <span>下一页</span>
+                <CommentNextIcon name="chevronRight" size={14} />
+              </button>
+            </nav>
+          {/if}
         {:else}
           <div class="comment-next-emote-empty">没有匹配的表情</div>
         {/if}
       </div>
     </div>
 
-    {#if previewEntry}
-      <CommentNextEmotePreview
-        item={previewEntry.item}
-        packName={previewEntry.packName}
-      />
-    {/if}
   </div>
 {/if}
 
@@ -340,6 +507,9 @@ function saveRecentItemIds(ids: string[]) {
   }
 
   .comment-next-emote-panel-fixed .comment-next-emote-content {
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
     min-height: 0;
     overflow: hidden;
   }
@@ -366,7 +536,7 @@ function saveRecentItemIds(ids: string[]) {
   }
 
   .comment-next-emote-content {
-    --at-apply: min-w-0 p-2;
+    --at-apply: flex min-h-0 min-w-0 flex-col p-2;
   }
 
   .comment-next-emote-grid {
@@ -374,7 +544,40 @@ function saveRecentItemIds(ids: string[]) {
   }
 
   .comment-next-emote-panel-fixed .comment-next-emote-grid {
-    max-height: calc(var(--comment-next-emote-fixed-max-height, 22.5rem) - 4.5rem);
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    align-content: start;
+  }
+
+  .comment-next-emote-pagination {
+    --at-apply: flex shrink-0 items-center justify-between gap-2 pt-2 text-xs text-[var(--comment-next-muted-color,#6b7687)];
+    margin-top: auto;
+  }
+
+  .comment-next-emote-pagination button {
+    --at-apply: inline-flex h-7 cursor-pointer items-center justify-center gap-1 rounded-[0.5rem] border-0 bg-transparent px-2 text-xs text-[var(--comment-next-muted-color,#6b7687)] font-[650] font-inherit transition-[background-color,color,transform] duration-140 ease-in-out;
+  }
+
+  .comment-next-emote-pagination button:hover:not(:disabled),
+  .comment-next-emote-pagination button:focus-visible {
+    --at-apply: bg-[var(--comment-next-control-hover-bg-color,#eef2f4)] text-[var(--comment-next-primary-color,rgb(59,130,246))] outline-none;
+  }
+
+  .comment-next-emote-pagination button:focus-visible {
+    box-shadow: 0 0 0 3px var(--comment-next-primary-ring-color, rgb(59 130 246 / 0.16));
+  }
+
+  .comment-next-emote-pagination button:active:not(:disabled) {
+    --at-apply: translate-y-px;
+  }
+
+  .comment-next-emote-pagination button:disabled {
+    --at-apply: cursor-not-allowed opacity-56;
+  }
+
+  .comment-next-emote-pagination > span {
+    --at-apply: tabular-nums;
   }
 
   .comment-next-emote-grid-image {
@@ -446,6 +649,11 @@ function saveRecentItemIds(ids: string[]) {
       --at-apply: block min-h-0;
     }
 
+    .comment-next-emote-panel-fixed .comment-next-emote-body {
+      display: flex;
+      flex-direction: column;
+    }
+
     .comment-next-emote-tabs {
       --at-apply: flex max-h-none gap-1 overflow-x-auto border-r-0 border-b p-1.5;
     }
@@ -454,8 +662,24 @@ function saveRecentItemIds(ids: string[]) {
       --at-apply: h-8 w-auto shrink-0;
     }
 
+    .comment-next-emote-panel-fixed .comment-next-emote-tabs {
+      flex: 0 0 auto;
+    }
+
+    .comment-next-emote-panel-fixed .comment-next-emote-content {
+      flex: 1 1 auto;
+    }
+
     .comment-next-emote-content {
       --at-apply: p-2;
+    }
+
+    .comment-next-emote-pagination button span {
+      --at-apply: hidden;
+    }
+
+    .comment-next-emote-pagination button {
+      --at-apply: w-7 px-0;
     }
 
     .comment-next-emote-grid {

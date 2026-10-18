@@ -1,3 +1,11 @@
+import {
+  replaceWithLottie,
+  replaceWithStoredLottieImage,
+  resolveLottieImage,
+  sanitizeLottieElement,
+} from './lottie-html';
+import { unwrapMarkdownLink } from './markdown-link';
+
 const ALLOWED_TAGS = new Set([
   'a',
   'b',
@@ -15,6 +23,7 @@ const ALLOWED_TAGS = new Set([
   's',
   'span',
   'strong',
+  'halo-lottie',
   'u',
   'ul',
 ]);
@@ -22,7 +31,15 @@ const ALLOWED_TAGS = new Set([
 const GLOBAL_ALLOWED_ATTRIBUTES = new Set(['title']);
 const DISPLAY_TAG_ALLOWED_ATTRIBUTES: Record<string, Set<string>> = {
   a: new Set(['href', 'title']),
-  img: new Set(['src', 'alt', 'class', 'loading', 'decoding']),
+  img: new Set([
+    'src',
+    'alt',
+    'class',
+    'loading',
+    'decoding',
+    'width',
+    'height',
+  ]),
 };
 
 const SUBMIT_TAG_ALLOWED_ATTRIBUTES: Record<string, Set<string>> = {
@@ -31,38 +48,45 @@ const SUBMIT_TAG_ALLOWED_ATTRIBUTES: Record<string, Set<string>> = {
   img: new Set(['align', 'alt', 'height', 'src', 'title', 'width']),
 };
 
+const REGULAR_IMAGE_METADATA_PREFIX = 'comment-next-image:';
+
 interface SanitizeOptions {
   mode: 'display' | 'submit';
-  allowImages?: boolean;
+  allowImages: boolean;
+  allowedLottieHosts: readonly unknown[];
 }
 
-export function sanitizeCommentHtml(value: string): string {
-  return sanitizeHtml(value, { mode: 'display', allowImages: true });
-}
-
-export function sanitizeCommentSubmitHtml(value: string): string {
-  return sanitizeHtml(value, { mode: 'submit', allowImages: true });
-}
-
-export function sanitizeConsoleCommentHtml(value: string): string {
-  return sanitizeHtml(value, { mode: 'display', allowImages: false });
-}
-
-export function highlightAssistantMentionHtml(
+export function sanitizeCommentHtml(
   value: string,
-  mentionName = ''
+  allowedLottieHosts: readonly unknown[] = []
 ): string {
-  const normalizedMention = normalizeMentionName(mentionName);
+  return sanitizeHtml(value, {
+    mode: 'display',
+    allowImages: true,
+    allowedLottieHosts,
+  });
+}
 
-  if (!value || !normalizedMention || typeof document === 'undefined') {
-    return value;
-  }
+export function sanitizeCommentSubmitHtml(
+  value: string,
+  allowedLottieHosts: readonly unknown[] = []
+): string {
+  return sanitizeHtml(value, {
+    mode: 'submit',
+    allowImages: true,
+    allowedLottieHosts,
+  });
+}
 
-  const template = document.createElement('template');
-  template.innerHTML = value;
-  highlightMentionTextNodes(template.content, normalizedMention);
-
-  return template.innerHTML;
+export function sanitizeConsoleCommentHtml(
+  value: string,
+  allowedLottieHosts: readonly unknown[] = []
+): string {
+  return sanitizeHtml(value, {
+    mode: 'display',
+    allowImages: false,
+    allowedLottieHosts,
+  });
 }
 
 function sanitizeHtml(value: string, options: SanitizeOptions): string {
@@ -77,7 +101,6 @@ function sanitizeHtml(value: string, options: SanitizeOptions): string {
   const template = document.createElement('template');
   template.innerHTML = value;
   sanitizeChildren(template.content, options);
-
   return template.innerHTML;
 }
 
@@ -94,90 +117,34 @@ function sanitizeChildren(parent: ParentNode, options: SanitizeOptions): void {
   }
 }
 
-function highlightMentionTextNodes(
-  parent: ParentNode,
-  mentionName: string
-): void {
-  const textNodes: Text[] = [];
-  const mentionNameLower = mentionName.toLowerCase();
-  const walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const text = node.textContent ?? '';
-      const parentElement = node.parentElement;
-
-      if (
-        !text.toLowerCase().includes(mentionNameLower) ||
-        parentElement?.closest('a, code, pre, .comment-next-ai-mention')
-      ) {
-        return NodeFilter.FILTER_REJECT;
-      }
-
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-
-  let currentNode = walker.nextNode();
-
-  while (currentNode) {
-    textNodes.push(currentNode as Text);
-    currentNode = walker.nextNode();
-  }
-
-  textNodes.forEach((textNode) => {
-    const fragment = createMentionHighlightedFragment(
-      textNode.textContent ?? '',
-      mentionName,
-      mentionNameLower
-    );
-
-    if (fragment) {
-      textNode.replaceWith(fragment);
-    }
-  });
-}
-
-function createMentionHighlightedFragment(
-  text: string,
-  mentionName: string,
-  mentionNameLower: string
-): DocumentFragment | undefined {
-  const textLower = text.toLowerCase();
-  const fragment = document.createDocumentFragment();
-  let cursor = 0;
-  let index = textLower.indexOf(mentionNameLower);
-  let matched = false;
-
-  while (index >= 0) {
-    fragment.append(text.slice(cursor, index));
-    fragment.append(
-      createMentionElement(text.slice(index, index + mentionName.length))
-    );
-    cursor = index + mentionName.length;
-    index = textLower.indexOf(mentionNameLower, cursor);
-    matched = true;
-  }
-
-  if (!matched) {
-    return undefined;
-  }
-
-  fragment.append(text.slice(cursor));
-  return fragment;
-}
-
-function createMentionElement(text: string): HTMLSpanElement {
-  const element = document.createElement('span');
-  element.className = 'comment-next-ai-mention';
-  element.setAttribute('data-comment-next-ai-mention', 'true');
-  element.textContent = text;
-  return element;
-}
-
 function sanitizeElement(element: Element, options: SanitizeOptions): void {
   const tagName = element.tagName.toLowerCase();
+  const imageClassName =
+    tagName === 'img' ? element.getAttribute('class') : null;
 
-  if (tagName === 'img' && !options.allowImages) {
-    element.remove();
+  if (tagName === 'img') {
+    const lottie = resolveLottieImage(element, options.allowedLottieHosts);
+    if (lottie.status === 'blocked') {
+      element.remove();
+      return;
+    }
+    if (lottie.status === 'allowed') {
+      if (options.mode === 'display') {
+        replaceWithLottie(element, lottie.data);
+      } else {
+        replaceWithStoredLottieImage(element, lottie.data);
+      }
+      return;
+    }
+
+    if (!options.allowImages) {
+      element.remove();
+      return;
+    }
+  }
+
+  if (tagName === 'halo-lottie') {
+    sanitizeLottieElement(element, options.mode, options.allowedLottieHosts);
     return;
   }
 
@@ -212,7 +179,7 @@ function sanitizeElement(element: Element, options: SanitizeOptions): void {
   }
 
   if (tagName === 'img') {
-    sanitizeImage(element as HTMLImageElement, options);
+    sanitizeImage(element as HTMLImageElement, options, imageClassName);
   }
 
   sanitizeChildren(element, options);
@@ -220,10 +187,10 @@ function sanitizeElement(element: Element, options: SanitizeOptions): void {
 
 function sanitizeImage(
   image: HTMLImageElement,
-  options: SanitizeOptions
+  options: SanitizeOptions,
+  originalClassName: string | null
 ): void {
   const src = normalizeImageSrc(image.getAttribute('src') ?? '');
-
   if (!src) {
     image.replaceWith(document.createTextNode(image.getAttribute('alt') ?? ''));
     return;
@@ -232,17 +199,118 @@ function sanitizeImage(
   image.setAttribute('src', src);
   image.setAttribute('alt', image.getAttribute('alt') ?? '表情');
 
+  const dimensions = normalizeImageDimensions(
+    image.getAttribute('width'),
+    image.getAttribute('height')
+  );
+  if (dimensions.width) {
+    image.setAttribute('width', String(dimensions.width));
+  } else {
+    image.removeAttribute('width');
+  }
+  if (dimensions.height) {
+    image.setAttribute('height', String(dimensions.height));
+  } else {
+    image.removeAttribute('height');
+  }
+
+  const metadata = decodeRegularImageMetadata(image.getAttribute('title'));
+  const imageClass = normalizeImageClass(originalClassName, Boolean(metadata));
+
+  if (options.mode === 'submit' && imageClass === 'comment-next-image') {
+    image.setAttribute(
+      'title',
+      encodeRegularImageMetadata(
+        metadata?.title ?? image.getAttribute('title') ?? ''
+      )
+    );
+  }
+
   if (options.mode === 'display') {
-    image.setAttribute('class', 'comment-next-emote-image');
+    if (metadata?.title) {
+      image.setAttribute('title', metadata.title);
+    } else if (metadata) {
+      image.removeAttribute('title');
+    }
+    image.setAttribute('class', imageClass);
     image.setAttribute('loading', 'lazy');
     image.setAttribute('decoding', 'async');
   }
 }
 
+function normalizeImageClass(
+  value: string | null,
+  hasRegularImageMetadata: boolean
+): 'comment-next-emote-image' | 'comment-next-image' {
+  const classes = new Set((value ?? '').split(/\s+/).filter(Boolean));
+  if (
+    hasRegularImageMetadata ||
+    classes.has('comment-next-editor-image') ||
+    classes.has('comment-next-image')
+  ) {
+    return 'comment-next-image';
+  }
+  if (
+    classes.has('comment-next-editor-emote-image') ||
+    classes.has('comment-next-emote-image')
+  ) {
+    return 'comment-next-emote-image';
+  }
+
+  return 'comment-next-emote-image';
+}
+
+type RegularImageMetadata = {
+  title: string;
+};
+
+function encodeRegularImageMetadata(title: string): string {
+  return `${REGULAR_IMAGE_METADATA_PREFIX}${encodeURIComponent(title)}`;
+}
+
+function decodeRegularImageMetadata(
+  value: string | null
+): RegularImageMetadata | undefined {
+  if (!value?.startsWith(REGULAR_IMAGE_METADATA_PREFIX)) {
+    return undefined;
+  }
+
+  try {
+    return {
+      title: decodeURIComponent(
+        value.slice(REGULAR_IMAGE_METADATA_PREFIX.length)
+      ),
+    };
+  } catch {
+    return { title: '' };
+  }
+}
+
+function normalizeImageDimensions(
+  widthValue: string | null,
+  heightValue: string | null
+): { width?: number; height?: number } {
+  return {
+    width: parseOptionalPositiveDimension(widthValue),
+    height: parseOptionalPositiveDimension(heightValue),
+  };
+}
+
+function parseOptionalPositiveDimension(
+  value: string | null
+): number | undefined {
+  if (value === null || !value.trim()) {
+    return undefined;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0
+    ? Math.min(4096, Math.round(number))
+    : undefined;
+}
+
 function isSafeHref(value: string): boolean {
   try {
     const url = new URL(value, window.location.origin);
-
     return ['http:', 'https:', 'mailto:'].includes(url.protocol);
   } catch {
     return false;
@@ -250,27 +318,17 @@ function isSafeHref(value: string): boolean {
 }
 
 function normalizeImageSrc(value: string): string {
-  const normalizedValue = value.startsWith('//') ? `https:${value}` : value;
+  const unwrapped = unwrapMarkdownLink(value);
+  const normalizedValue = unwrapped.startsWith('//')
+    ? `https:${unwrapped}`
+    : unwrapped;
 
   try {
     const url = new URL(normalizedValue, window.location.origin);
-
     return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
   } catch {
     return '';
   }
-}
-
-function normalizeMentionName(value: string): string {
-  const normalizedValue = value.trim();
-
-  if (!normalizedValue) {
-    return '';
-  }
-
-  return normalizedValue.startsWith('@')
-    ? normalizedValue
-    : `@${normalizedValue}`;
 }
 
 function escapeHtml(value: string): string {

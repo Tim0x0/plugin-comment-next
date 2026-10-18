@@ -40,13 +40,14 @@ repositories {
 }
 
 dependencies {
-    implementation platform('run.halo.tools.platform:plugin:2.25.0')
+    implementation platform('run.halo.tools.platform:plugin:2.26.0')
     compileOnly 'run.halo.app:api'
     compileOnly 'run.halo.aifoundation:api:1.0.0-SNAPSHOT'
     compileOnly 'com.github.Tim0x0:halo-plugin-interaction-plus:1.0.0'
     implementation 'org.altcha:altcha:2.0.2'
     implementation 'org.json:json:20240303'
     implementation 'org.jsoup:jsoup:1.18.3'
+    implementation 'org.lionsoul:ip2region:3.3.7'
 
     testImplementation 'run.halo.app:api'
     testImplementation 'run.halo.aifoundation:api:1.0.0-SNAPSHOT'
@@ -97,6 +98,6 @@ build {
 }
 
 halo {
-    version = "2.25.2"
+    version = "2.26.0"
     debug = true
 }

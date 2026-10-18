@@ -2,6 +2,7 @@
 import { onMount, tick } from 'svelte';
 import CommentNextAiPanel from './CommentNextAiPanel.svelte';
 import CommentNextEmotePanel from './CommentNextEmotePanel.svelte';
+import CommentNextEmotePreview from './CommentNextEmotePreview.svelte';
 import CommentNextIcon from './CommentNextIcon.svelte';
 import CommentNextTooltip from './CommentNextTooltip.svelte';
 import type {
@@ -11,6 +12,11 @@ import type {
 import { COMMENT_NEXT_MODAL_OPEN_EVENT } from './utils/overlays';
 
 type CommentNextComposerVariant = 'comment' | 'reply';
+type CommentNextEmotePreviewState = {
+  item: CommentNextEmoteItem;
+  packName: string;
+  style: string;
+};
 
 const {
   commandMenuOpen = false,
@@ -34,6 +40,7 @@ const {
   imageUploading = false,
   imageAccept = 'image/*',
   emotePacks = [],
+  emotePageSize,
   onToggleCommandMenu = () => {},
   onCloseCommandMenu = () => {},
   onCommandModeSelect = () => {},
@@ -62,6 +69,7 @@ const {
   imageUploading?: boolean;
   imageAccept?: string;
   emotePacks?: CommentNextEmotePack[];
+  emotePageSize?: number;
   onToggleCommandMenu?: () => void;
   onCloseCommandMenu?: () => void;
   onCommandModeSelect?: (mode: string) => void;
@@ -80,6 +88,7 @@ let aiButtonElement = $state<HTMLButtonElement | undefined>();
 let imageInputElement = $state<HTMLInputElement | undefined>();
 let emotePanelOpen = $state(false);
 let emotePanelStyle = $state('');
+let emotePreview = $state<CommentNextEmotePreviewState | undefined>();
 let aiPanelStyle = $state('');
 let isMobileViewport = $state(false);
 
@@ -384,7 +393,9 @@ async function updateAiPanelPosition() {
           fixed={floatingEmotePanel}
           panelStyle={emotePanelStyle}
           packs={emotePacks}
+          pageSize={emotePageSize}
           onSelect={handleEmoteSelect}
+          onPreviewChange={(entry) => (emotePreview = entry)}
         />
       {/if}
 
@@ -415,6 +426,13 @@ async function updateAiPanelPosition() {
         {/each}
       </div>
     </div>
+    {#if emotePreview}
+      <CommentNextEmotePreview
+        item={emotePreview.item}
+        packName={emotePreview.packName}
+        style={emotePreview.style}
+      />
+    {/if}
     {/if}
     {/if}
 

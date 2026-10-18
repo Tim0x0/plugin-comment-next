@@ -4,7 +4,10 @@ import CommentNextBaseComposer from './CommentNextBaseComposer.svelte';
 import CommentNextBox from './CommentNextBox.svelte';
 import CommentNextCommentList from './CommentNextCommentList.svelte';
 import CommentNextReactionBar from './CommentNextReactionBar.svelte';
-import { normalizeCommentNextEmotePacks } from './emotes/normalize';
+import {
+  normalizeCommentNextEmotePacks,
+  normalizeLottieDefaults,
+} from './emotes/normalize';
 import {
   type CommentNextGlobalInfo,
   type CommentNextPluginConfig,
@@ -16,7 +19,12 @@ import {
   ensureInteractionPlusRuntime,
   shouldLoadInteractionPlusRuntime,
 } from './services/interaction-plus';
-import type { CommentNextRawEmotePacks } from './types/emote';
+import type {
+  CommentNextEmotePack,
+  CommentNextRawEmotePacks,
+} from './types/emote';
+import { sanitizeCommentSubmitHtml, sanitizeConsoleCommentHtml } from './utils/html';
+import { ensureLottieRuntimeLoaded } from './utils/lottie-content-adapter';
 
 const {
   baseUrl = '',
@@ -102,6 +110,7 @@ const reactionConfig = $derived(pluginConfig?.reaction);
 const reportConfig = $derived(pluginConfig?.report);
 const editorConfig = $derived(pluginConfig?.editor);
 const badgeConfig = $derived(pluginConfig?.badge);
+const emoteConfig = $derived(pluginConfig?.emote);
 const resolvedAllowAnonymous = $derived(
   globalInfo?.allowAnonymousComments ?? allowAnonymous
 );
@@ -123,10 +132,16 @@ const resolvedEnableImageLightbox = $derived(
 const resolvedPlaceholder = $derived(
   editorConfig?.placeholder?.trim() || placeholder
 );
+const resolvedLottieDefaultPaused = $derived(
+  emoteConfig?.defaultPaused ?? true
+);
 const resolvedEmotePacks = $derived(
-  demoData
-    ? normalizeCommentNextEmotePacks(undefined)
-    : normalizeCommentNextEmotePacks(rawEmotePacks)
+  applyLottiePlaybackDefaults(
+    demoData
+      ? normalizeCommentNextEmotePacks(undefined)
+      : normalizeCommentNextEmotePacks(rawEmotePacks),
+    resolvedLottieDefaultPaused
+  )
 );
 const resolvedWithReplies = $derived(basicConfig?.withReplies ?? withReplies);
 const resolvedPageSize = $derived(
@@ -170,6 +185,7 @@ onMount(() => {
     fetchEmotePacks(baseUrl)
       .then((emotes) => {
         if (!cancelled) {
+          ensureLottieRuntimeForEmotes(emotes);
           rawEmotePacks = emotes;
         }
       })
@@ -219,6 +235,7 @@ onMount(() => {
   fetchEmotePacks(baseUrl)
     .then((emotes) => {
       if (!cancelled) {
+        ensureLottieRuntimeForEmotes(emotes);
         rawEmotePacks = emotes;
       }
     })
@@ -234,6 +251,57 @@ onMount(() => {
   };
 });
 
+function ensureLottieRuntimeForEmotes(emotes: unknown): void {
+  if (!containsLottiePack(emotes)) {
+    return;
+  }
+
+  ensureLottieRuntimeLoaded();
+}
+
+function containsLottiePack(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const packs = Array.isArray(record.packs)
+    ? record.packs
+    : Object.values(record);
+
+  return packs.some((pack) => {
+    if (!pack || typeof pack !== 'object') {
+      return false;
+    }
+
+    const candidate = pack as { provider?: unknown; type?: unknown };
+    return candidate.provider === 'LOTTIE' || candidate.type === 'lottie';
+  });
+}
+
+function applyLottiePlaybackDefaults(
+  packs: CommentNextEmotePack[],
+  defaultPaused: boolean
+): CommentNextEmotePack[] {
+  return packs.map((pack) => {
+    if (pack.provider !== 'LOTTIE') {
+      return pack;
+    }
+
+    return {
+      ...pack,
+      items: pack.items.map((item) => ({
+        ...item,
+        defaults: {
+          ...normalizeLottieDefaults(item.defaults),
+          autoplay: !defaultPaused,
+          hoverPlay: defaultPaused,
+        },
+      })),
+    };
+  });
+}
+
 function resolvePositiveNumber(
   value: number | undefined,
   fallback: number
@@ -245,6 +313,14 @@ function resolvePositiveNumber(
   }
 
   return normalizedValue;
+}
+
+function handleEditorChange(html: string) {
+  onEditorChange(
+    allowImages
+      ? sanitizeCommentSubmitHtml(html, emoteConfig?.allowedHosts)
+      : sanitizeConsoleCommentHtml(html, emoteConfig?.allowedHosts)
+  );
 }
 
 export function focus() {
@@ -276,11 +352,12 @@ export function reset() {
     placeholder={resolvedPlaceholder}
     {aiConfig}
     {uploadConfig}
+    {emoteConfig}
     emotePacks={resolvedEmotePacks}
     variant="reply"
     compact
     targetReady={true}
-    onChange={onEditorChange}
+    onChange={handleEditorChange}
   />
 {:else}
   <div class="comment-next-root grid w-full gap-4">
@@ -316,6 +393,7 @@ export function reset() {
       placeholder={resolvedPlaceholder}
       {aiConfig}
       {uploadConfig}
+      {emoteConfig}
       emotePacks={resolvedEmotePacks}
     />
 
@@ -342,6 +420,7 @@ export function reset() {
         {reactionConfig}
         {reportConfig}
         {uploadConfig}
+        {emoteConfig}
         emotePacks={resolvedEmotePacks}
       />
     {/if}
